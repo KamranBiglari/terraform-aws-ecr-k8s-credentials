@@ -1,0 +1,4 @@
+{
+  "image": "ghcr.io/devcontainers/features/terraform:1",
+  "features": {}
+}
