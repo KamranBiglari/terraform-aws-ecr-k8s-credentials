@@ -29,7 +29,7 @@ A Terraform module to automate AWS ECR credential refresh in Kubernetes clusters
 
 ```hcl
 module "ecr_credentials" {
-  source = "github.com/KamranBiglari/terraform-aws-ecr-k8s-credentials"
+  source = "KamranBiglari/ecr-k8s-credentials/aws"
 
   prefix     = "myapp"
   aws_region = "us-east-1"
@@ -40,7 +40,7 @@ module "ecr_credentials" {
 
 ```hcl
 module "ecr_credentials" {
-  source = "github.com/KamranBiglari/terraform-aws-ecr-k8s-credentials"
+  source = "KamranBiglari/ecr-k8s-credentials/aws"
 
   prefix     = "myapp"
   aws_region = "us-east-1"
@@ -83,7 +83,7 @@ If you already have AWS credentials and don't want to create a new IAM user:
 
 ```hcl
 module "ecr_credentials" {
-  source = "github.com/KamranBiglari/terraform-aws-ecr-k8s-credentials"
+  source = "KamranBiglari/ecr-k8s-credentials/aws"
 
   prefix     = "myapp"
   aws_region = "us-east-1"
@@ -101,7 +101,7 @@ If you want to manage Kubernetes resources separately:
 
 ```hcl
 module "ecr_credentials" {
-  source = "github.com/KamranBiglari/terraform-aws-ecr-k8s-credentials"
+  source = "KamranBiglari/ecr-k8s-credentials/aws"
 
   prefix     = "myapp"
   aws_region = "us-east-1"

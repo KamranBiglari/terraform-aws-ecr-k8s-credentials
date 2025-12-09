@@ -37,7 +37,7 @@ output "cronjob_name" {
 
 output "ecr_registry_url" {
   description = "ECR registry URL"
-  value       = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region != null ? var.aws_region : data.aws_region.current.region}.amazonaws.com"
+  value       = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region != null ? var.aws_region : data.aws_region.current.name}.amazonaws.com"
 }
 
 output "aws_account_id" {

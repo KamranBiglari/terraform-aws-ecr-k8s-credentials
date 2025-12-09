@@ -70,7 +70,7 @@ resource "kubernetes_secret_v1" "aws_credentials" {
   data = {
     AWS_ACCESS_KEY_ID     = var.create_iam_user ? aws_iam_access_key.ecr_k8s_key[0].id : var.aws_access_key_id
     AWS_SECRET_ACCESS_KEY = var.create_iam_user ? aws_iam_access_key.ecr_k8s_key[0].secret : var.aws_secret_access_key
-    AWS_REGION            = var.aws_region != null ? var.aws_region : data.aws_region.current.region
+    AWS_REGION            = var.aws_region != null ? var.aws_region : data.aws_region.current.name
     AWS_ACCOUNT_ID        = data.aws_caller_identity.current.account_id
   }
 
