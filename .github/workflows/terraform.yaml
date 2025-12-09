@@ -1,0 +1,56 @@
+name: 'Terraform CI'
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  terraform:
+    name: 'Terraform fmt and validate'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.7
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Format
+        run: terraform fmt -recursive
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Commit and push changes
+        if: github.event_name == 'push'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # Check if there are any changes
+          if ! git diff --quiet '*.tf'; then
+            # Stage Terraform file changes
+            git add '*.tf'
+            
+            # Commit changes
+            git commit -m "style: Auto-format Terraform files [skip ci]"
+            
+            # Pull with rebase and push
+            git pull --rebase origin main || true
+            git push
+          else
+            echo "No changes to commit"
+          fi
