@@ -2,12 +2,18 @@
 resource "aws_iam_user" "ecr_k8s_user" {
   count = var.create_iam_user ? 1 : 0
 
-  name = "${var.prefix}-ecr-k8s-user"
+  name = coalesce(
+    var.iam_user_name,
+    "${var.prefix}-ecr-k8s-user"
+  )
   path = var.iam_user_path
 
   tags = merge(
     {
-      Name = "${var.prefix}-ecr-k8s-user"
+      Name = coalesce(
+        var.iam_user_name,
+        "${var.prefix}-ecr-k8s-user"
+      )
     },
     var.tags
   )
@@ -17,7 +23,10 @@ resource "aws_iam_user" "ecr_k8s_user" {
 resource "aws_iam_user_policy" "ecr_k8s_policy" {
   count = var.create_iam_user ? 1 : 0
 
-  name = "${var.prefix}-ecr-readonly"
+  name = coalesce(
+    var.iam_user_policy_name,
+    "${var.prefix}-ecr-k8s-policy"
+  )
   user = aws_iam_user.ecr_k8s_user[0].name
 
   policy = jsonencode({
@@ -42,8 +51,7 @@ resource "aws_iam_user_policy" "ecr_k8s_policy" {
 
 resource "aws_iam_access_key" "ecr_k8s_key" {
   count = var.create_iam_user ? 1 : 0
-
-  user = aws_iam_user.ecr_k8s_user[0].name
+  user  = aws_iam_user.ecr_k8s_user[0].name
 }
 
 # Create a namespace for the ECR credential refresh job
@@ -63,7 +71,7 @@ resource "kubernetes_secret_v1" "aws_credentials" {
   count = var.create_kubernetes_resources ? 1 : 0
 
   metadata {
-    name      = "aws-ecr-credentials"
+    name      = "${var.prefix}-aws-credentials"
     namespace = kubernetes_namespace_v1.ecr_updater[0].metadata[0].name
   }
 
@@ -82,7 +90,7 @@ resource "kubernetes_service_account_v1" "ecr_updater" {
   count = var.create_kubernetes_resources ? 1 : 0
 
   metadata {
-    name      = "ecr-credential-updater"
+    name      = "${var.prefix}-ecr-credential-updater"
     namespace = kubernetes_namespace_v1.ecr_updater[0].metadata[0].name
   }
 }
@@ -135,7 +143,7 @@ resource "kubernetes_cron_job_v1" "ecr_credential_refresh" {
   count = var.create_kubernetes_resources ? 1 : 0
 
   metadata {
-    name      = "ecr-credential-refresh"
+    name      = "${var.prefix}-ecr-credential-refresh"
     namespace = kubernetes_namespace_v1.ecr_updater[0].metadata[0].name
   }
 
@@ -146,14 +154,14 @@ resource "kubernetes_cron_job_v1" "ecr_credential_refresh" {
 
     job_template {
       metadata {
-        name = "ecr-credential-refresh"
+        name = "${var.prefix}-ecr-credential-refresh"
       }
 
       spec {
         template {
           metadata {
             labels = {
-              app = "ecr-credential-refresh"
+              app = "${var.prefix}-ecr-credential-refresh"
             }
           }
 
@@ -162,7 +170,7 @@ resource "kubernetes_cron_job_v1" "ecr_credential_refresh" {
             restart_policy       = "OnFailure"
 
             container {
-              name  = "ecr-credential-updater"
+              name  = "${var.prefix}-ecr-credential-updater"
               image = var.cronjob_image
 
               command = ["/bin/sh", "-c"]
@@ -181,24 +189,31 @@ resource "kubernetes_cron_job_v1" "ecr_credential_refresh" {
                 echo "Creating Docker config JSON..."
                 DOCKER_CONFIG=$(echo -n "{\"auths\":{\"$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com\":{\"username\":\"AWS\",\"password\":\"$TOKEN\"}}}" | base64 -w 0)
 
-                # Get all namespaces and update secrets in each
-                echo "Discovering all namespaces..."
-                NAMESPACES=$(kubectl get namespaces -o jsonpath='{.items[*].metadata.name}')
+                # Get namespaces from env variable or discover all via kubectl
+                if [ -n "$TARGET_NAMESPACES" ]; then
+                  echo "Using namespaces from TARGET_NAMESPACES variable..."
+                  NAMESPACES="$TARGET_NAMESPACES"
+                else
+                  echo "Discovering all namespaces via kubectl..."
+                  NAMESPACES=$(kubectl get namespaces -o jsonpath='{.items[*].metadata.name}')
+                fi
 
                 echo "Found namespaces: $NAMESPACES"
 
                 for NAMESPACE in $NAMESPACES; do
                   echo "Updating secret in namespace: $NAMESPACE"
 
-                  # Create or update the secret
-                  kubectl create secret docker-registry ${var.secret_name} \
+                  # Create or update the secret, continue on error
+                  if kubectl create secret docker-registry ${var.secret_name} \
                     --docker-server=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com \
                     --docker-username=AWS \
                     --docker-password=$TOKEN \
                     --namespace=$NAMESPACE \
-                    --dry-run=client -o yaml | kubectl apply -f -
-
-                  echo "Secret updated successfully in $NAMESPACE"
+                    --dry-run=client -o yaml | kubectl apply -f -; then
+                    echo "Secret updated successfully in $NAMESPACE"
+                  else
+                    echo "WARNING: Failed to update secret in $NAMESPACE (namespace may not exist), continuing..."
+                  fi
                 done
 
                 echo "ECR credentials refresh completed successfully!"
@@ -243,6 +258,11 @@ resource "kubernetes_cron_job_v1" "ecr_credential_refresh" {
                     key  = "AWS_ACCOUNT_ID"
                   }
                 }
+              }
+
+              env {
+                name  = "TARGET_NAMESPACES"
+                value = var.target_namespaces
               }
 
               resources {

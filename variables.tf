@@ -15,6 +15,18 @@ variable "create_iam_user" {
   default     = true
 }
 
+variable "iam_user_name" {
+  description = "Name of the IAM user to create for ECR access"
+  type        = string
+  default     = ""
+}
+
+variable "iam_user_policy_name" {
+  description = "Name of the IAM user policy for ECR access"
+  type        = string
+  default     = ""
+}
+
 variable "create_kubernetes_resources" {
   description = "Whether to create Kubernetes resources (namespace, service account, RBAC, cronjob)"
   type        = bool
@@ -85,6 +97,12 @@ variable "secret_name" {
   description = "Name of the docker-registry secret to create in each namespace"
   type        = string
   default     = "ecr-registry-credentials"
+}
+
+variable "target_namespaces" {
+  description = "Space-separated list of Kubernetes namespaces to update. If empty, will discover all namespaces using kubectl"
+  type        = string
+  default     = ""
 }
 
 variable "tags" {
