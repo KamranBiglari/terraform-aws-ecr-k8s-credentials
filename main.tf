@@ -173,15 +173,11 @@ resource "kubernetes_cron_job_v1" "ecr_credential_refresh" {
               name  = "${var.prefix}-ecr-credential-updater"
               image = var.cronjob_image
 
-              command = ["/bin/sh", "-c"]
+              command = ["/bin/bash", "-c"]
               args = [
                 <<-EOT
-                #!/bin/sh
+                #!/bin/bash
                 set -e
-
-                # Install AWS CLI
-                echo "Installing AWS CLI..."
-                apk add --no-cache aws-cli
 
                 echo "Fetching ECR authorization token..."
                 TOKEN=$(aws ecr get-login-password --region $AWS_REGION)

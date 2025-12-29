@@ -54,7 +54,7 @@ variable "cronjob_schedule" {
 variable "cronjob_image" {
   description = "Docker image to use for the credential refresh cronjob"
   type        = string
-  default     = "alpine/k8s:1.30.7"
+  default     = "kamranbiglari/ecr-k8s-updater:latest"
 }
 
 variable "cronjob_cpu_limit" {
