@@ -1,4 +1,4 @@
-FROM alpine/k8s:1.30.7
+FROM alpine/k8s:1.33.12
 
 # Install AWS CLI and other dependencies
 RUN apk add --no-cache \
