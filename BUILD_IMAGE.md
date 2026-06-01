@@ -51,7 +51,9 @@ module "ecr_credentials" {
 
 ## Default Image
 
-By default, the module uses `alpine/k8s:1.30.7` which includes kubectl but requires AWS CLI installation during each run. Using the custom image eliminates this overhead.
+By default, the module uses the prebuilt `kamranbiglari/ecr-k8s-updater` image (kubectl + AWS CLI baked in), so nothing is installed at runtime.
+
+The [Tag and Release workflow](.github/workflows/tag.yaml) builds and pushes this image on every merge to `main`: it bumps the version, pushes both `:latest` and `:vX.Y.Z`, and then **pins the module's `cronjob_image` default to that exact version** (committing the change back to `variables.tf`). This means consumers get an immutable, reproducible tag by default rather than a moving `:latest`. Set `cronjob_image_pull_policy = "Always"` only if you intentionally track `:latest`.
 
 ## Benefits of Custom Image
 

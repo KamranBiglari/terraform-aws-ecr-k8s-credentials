@@ -4,12 +4,17 @@ name: Tag and Release
 
 # Controls when the workflow will run
 on:
-  # Triggers the workflow on push or pull request events but only for the "main" branch
-  pull_request:
+  # Triggers the workflow on merge/push to the "main" branch
+  push:
     branches: [ "main" ]
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
+
+# Serialize runs so the version-bump and pin commit can't race each other
+concurrency:
+  group: tag-and-release
+  cancel-in-progress: false
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
@@ -17,11 +22,18 @@ jobs:
   build:
     # The type of runner that the job will run on
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it.
+      # fetch-depth: 0 gives the tag action full history; the token lets us push the pin commit back.
       - uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          ref: main
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -35,13 +47,18 @@ jobs:
           username: kamranbiglari
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Bump version and push tag
+      # Compute the next version WITHOUT creating the git tag yet (dry_run).
+      # The tag is only created later, after the Docker build succeeds.
+      - name: Compute next version
         id: tag_version
         uses: mathieudutour/github-tag-action@v6.1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          dry_run: true
 
+      # If this fails, the job stops here: no tag, no pin, no release, no version change.
       - name: Build and push Docker image
+        if: steps.tag_version.outputs.new_tag != ''
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -51,7 +68,41 @@ jobs:
             kamranbiglari/ecr-k8s-updater:latest
             kamranbiglari/ecr-k8s-updater:${{ steps.tag_version.outputs.new_tag }}
 
+      # Pin the module's default image (and docs) to the version we just built, so
+      # consumers get an immutable, reproducible tag instead of the mutable :latest.
+      # Runs only after a successful build/push above.
+      - name: Pin module default image to released version
+        if: steps.tag_version.outputs.new_tag != ''
+        env:
+          NEW_TAG: ${{ steps.tag_version.outputs.new_tag }}
+        run: |
+          # Roll the image tag forward in the module default and the docs.
+          sed -i "s#kamranbiglari/ecr-k8s-updater:[^\"\` ]*#kamranbiglari/ecr-k8s-updater:${NEW_TAG}#g" variables.tf README.md
+
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+
+          if git diff --quiet variables.tf README.md; then
+            echo "cronjob_image already pinned to ${NEW_TAG}"
+          else
+            git add variables.tf README.md
+            git commit -m "chore: pin cronjob_image to ${NEW_TAG} [skip ci]"
+            git pull --rebase origin main || true
+            git push
+          fi
+
+      # Now that the image is built/pushed and the pin is committed, create the
+      # git tag on the resulting commit. Tag is created only on build success.
+      - name: Create and push git tag
+        if: steps.tag_version.outputs.new_tag != ''
+        env:
+          NEW_TAG: ${{ steps.tag_version.outputs.new_tag }}
+        run: |
+          git tag -a "${NEW_TAG}" -m "Release ${NEW_TAG}"
+          git push origin "${NEW_TAG}"
+
       - name: Create a GitHub release
+        if: steps.tag_version.outputs.new_tag != ''
         uses: ncipollo/release-action@v1
         with:
           tag: ${{ steps.tag_version.outputs.new_tag }}
