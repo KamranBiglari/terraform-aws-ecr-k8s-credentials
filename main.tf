@@ -151,6 +151,8 @@ resource "kubernetes_cron_job_v1" "ecr_credential_refresh" {
     schedule                      = var.cronjob_schedule
     successful_jobs_history_limit = var.successful_jobs_history_limit
     failed_jobs_history_limit     = var.failed_jobs_history_limit
+    concurrency_policy            = var.cronjob_concurrency_policy
+    starting_deadline_seconds     = var.cronjob_starting_deadline_seconds
 
     job_template {
       metadata {
@@ -169,102 +171,64 @@ resource "kubernetes_cron_job_v1" "ecr_credential_refresh" {
             service_account_name = kubernetes_service_account_v1.ecr_updater[0].metadata[0].name
             restart_policy       = "OnFailure"
 
+            security_context {
+              run_as_non_root = true
+              run_as_user     = 1000
+              fs_group        = 1000
+              seccomp_profile {
+                type = "RuntimeDefault"
+              }
+            }
+
+            # Writable scratch dirs so the container can keep a read-only root
+            # filesystem while still letting kubectl/aws write their caches.
+            volume {
+              name = "tmp"
+              empty_dir {}
+            }
+
+            volume {
+              name = "home"
+              empty_dir {}
+            }
+
             container {
-              name  = "${var.prefix}-ecr-credential-updater"
-              image = var.cronjob_image
+              name              = "${var.prefix}-ecr-credential-updater"
+              image             = var.cronjob_image
+              image_pull_policy = var.cronjob_image_pull_policy
 
               command = ["/bin/bash", "-c"]
-              args = [
-                <<-EOT
-                #!/bin/bash
-                set -e
+              args    = [local.refresh_script]
 
-                echo "Checking required commands are available..."
-                MISSING_COMMANDS=""
-                for cmd in aws kubectl base64; do
-                  if ! command -v "$cmd" >/dev/null 2>&1; then
-                    MISSING_COMMANDS="$MISSING_COMMANDS $cmd"
-                  fi
-                done
-
-                if [ -n "$MISSING_COMMANDS" ]; then
-                  echo "ERROR: The following required commands are not available:$MISSING_COMMANDS" >&2
-                  exit 1
-                fi
-
-                echo "Fetching ECR authorization token..."
-                TOKEN=$(aws ecr get-login-password --region $AWS_REGION)
-
-                echo "Creating Docker config JSON..."
-                DOCKER_CONFIG=$(echo -n "{\"auths\":{\"$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com\":{\"username\":\"AWS\",\"password\":\"$TOKEN\"}}}" | base64 -w 0)
-
-                # Get namespaces from env variable or discover all via kubectl
-                if [ -n "$TARGET_NAMESPACES" ]; then
-                  echo "Using namespaces from TARGET_NAMESPACES variable..."
-                  NAMESPACES="$TARGET_NAMESPACES"
-                else
-                  echo "Discovering all namespaces via kubectl..."
-                  NAMESPACES=$(kubectl get namespaces -o jsonpath='{.items[*].metadata.name}')
-                fi
-
-                echo "Found namespaces: $NAMESPACES"
-
-                for NAMESPACE in $NAMESPACES; do
-                  echo "Updating secret in namespace: $NAMESPACE"
-
-                  # Create or update the secret, continue on error
-                  if kubectl create secret docker-registry ${var.secret_name} \
-                    --docker-server=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com \
-                    --docker-username=AWS \
-                    --docker-password=$TOKEN \
-                    --namespace=$NAMESPACE \
-                    --dry-run=client -o yaml | kubectl apply -f -; then
-                    echo "Secret updated successfully in $NAMESPACE"
-                  else
-                    echo "WARNING: Failed to update secret in $NAMESPACE (namespace may not exist), continuing..."
-                  fi
-                done
-
-                echo "ECR credentials refresh completed successfully!"
-                EOT
-              ]
-
-              env {
-                name = "AWS_ACCESS_KEY_ID"
-                value_from {
-                  secret_key_ref {
-                    name = kubernetes_secret_v1.aws_credentials[0].metadata[0].name
-                    key  = "AWS_ACCESS_KEY_ID"
-                  }
+              security_context {
+                allow_privilege_escalation = false
+                read_only_root_filesystem  = true
+                run_as_non_root            = true
+                run_as_user                = 1000
+                capabilities {
+                  drop = ["ALL"]
                 }
               }
 
-              env {
-                name = "AWS_SECRET_ACCESS_KEY"
-                value_from {
-                  secret_key_ref {
-                    name = kubernetes_secret_v1.aws_credentials[0].metadata[0].name
-                    key  = "AWS_SECRET_ACCESS_KEY"
-                  }
-                }
+              volume_mount {
+                name       = "tmp"
+                mount_path = "/tmp"
               }
 
-              env {
-                name = "AWS_REGION"
-                value_from {
-                  secret_key_ref {
-                    name = kubernetes_secret_v1.aws_credentials[0].metadata[0].name
-                    key  = "AWS_REGION"
-                  }
-                }
+              volume_mount {
+                name       = "home"
+                mount_path = "/home/kubectl-user"
               }
 
-              env {
-                name = "AWS_ACCOUNT_ID"
-                value_from {
-                  secret_key_ref {
-                    name = kubernetes_secret_v1.aws_credentials[0].metadata[0].name
-                    key  = "AWS_ACCOUNT_ID"
+              dynamic "env" {
+                for_each = local.ecr_updater_secret_env
+                content {
+                  name = env.value
+                  value_from {
+                    secret_key_ref {
+                      name = kubernetes_secret_v1.aws_credentials[0].metadata[0].name
+                      key  = env.value
+                    }
                   }
                 }
               }
@@ -272,6 +236,16 @@ resource "kubernetes_cron_job_v1" "ecr_credential_refresh" {
               env {
                 name  = "TARGET_NAMESPACES"
                 value = var.target_namespaces
+              }
+
+              env {
+                name  = "EXCLUDE_NAMESPACES"
+                value = var.exclude_namespaces
+              }
+
+              env {
+                name  = "HOME"
+                value = "/home/kubectl-user"
               }
 
               resources {
@@ -290,4 +264,123 @@ resource "kubernetes_cron_job_v1" "ecr_credential_refresh" {
       }
     }
   }
+}
+
+# One-shot Job to populate the credentials immediately on apply, so workloads
+# don't have to wait for the first scheduled CronJob run (up to a full interval).
+resource "kubernetes_job_v1" "ecr_credential_bootstrap" {
+  count = var.create_kubernetes_resources && var.create_bootstrap_job ? 1 : 0
+
+  metadata {
+    name      = "${var.prefix}-ecr-credential-bootstrap"
+    namespace = kubernetes_namespace_v1.ecr_updater[0].metadata[0].name
+  }
+
+  spec {
+    backoff_limit              = 2
+    ttl_seconds_after_finished = var.bootstrap_job_ttl_seconds
+
+    template {
+      metadata {
+        labels = {
+          app = "${var.prefix}-ecr-credential-refresh"
+        }
+      }
+
+      spec {
+        service_account_name = kubernetes_service_account_v1.ecr_updater[0].metadata[0].name
+        restart_policy       = "OnFailure"
+
+        security_context {
+          run_as_non_root = true
+          run_as_user     = 1000
+          fs_group        = 1000
+          seccomp_profile {
+            type = "RuntimeDefault"
+          }
+        }
+
+        volume {
+          name = "tmp"
+          empty_dir {}
+        }
+
+        volume {
+          name = "home"
+          empty_dir {}
+        }
+
+        container {
+          name              = "${var.prefix}-ecr-credential-updater"
+          image             = var.cronjob_image
+          image_pull_policy = var.cronjob_image_pull_policy
+
+          command = ["/bin/bash", "-c"]
+          args    = [local.refresh_script]
+
+          security_context {
+            allow_privilege_escalation = false
+            read_only_root_filesystem  = true
+            run_as_non_root            = true
+            run_as_user                = 1000
+            capabilities {
+              drop = ["ALL"]
+            }
+          }
+
+          volume_mount {
+            name       = "tmp"
+            mount_path = "/tmp"
+          }
+
+          volume_mount {
+            name       = "home"
+            mount_path = "/home/kubectl-user"
+          }
+
+          dynamic "env" {
+            for_each = local.ecr_updater_secret_env
+            content {
+              name = env.value
+              value_from {
+                secret_key_ref {
+                  name = kubernetes_secret_v1.aws_credentials[0].metadata[0].name
+                  key  = env.value
+                }
+              }
+            }
+          }
+
+          env {
+            name  = "TARGET_NAMESPACES"
+            value = var.target_namespaces
+          }
+
+          env {
+            name  = "EXCLUDE_NAMESPACES"
+            value = var.exclude_namespaces
+          }
+
+          env {
+            name  = "HOME"
+            value = "/home/kubectl-user"
+          }
+
+          resources {
+            limits = {
+              cpu    = var.cronjob_cpu_limit
+              memory = var.cronjob_memory_limit
+            }
+            requests = {
+              cpu    = var.cronjob_cpu_request
+              memory = var.cronjob_memory_request
+            }
+          }
+        }
+      }
+    }
+  }
+
+  # Jobs are immutable; let Terraform replace it when the script/config changes.
+  wait_for_completion = var.bootstrap_job_wait_for_completion
 }
