@@ -105,6 +105,58 @@ variable "target_namespaces" {
   default     = ""
 }
 
+variable "exclude_namespaces" {
+  description = "Space-separated list of Kubernetes namespaces to skip when updating secrets"
+  type        = string
+  default     = "kube-public"
+}
+
+variable "cronjob_image_pull_policy" {
+  description = "Image pull policy for the cronjob/bootstrap container. Use 'Always' if you track a mutable tag like ':latest'"
+  type        = string
+  default     = "IfNotPresent"
+
+  validation {
+    condition     = contains(["Always", "IfNotPresent", "Never"], var.cronjob_image_pull_policy)
+    error_message = "cronjob_image_pull_policy must be one of: Always, IfNotPresent, Never."
+  }
+}
+
+variable "cronjob_concurrency_policy" {
+  description = "How to treat concurrent executions of the CronJob (Allow, Forbid, or Replace)"
+  type        = string
+  default     = "Forbid"
+
+  validation {
+    condition     = contains(["Allow", "Forbid", "Replace"], var.cronjob_concurrency_policy)
+    error_message = "cronjob_concurrency_policy must be one of: Allow, Forbid, Replace."
+  }
+}
+
+variable "cronjob_starting_deadline_seconds" {
+  description = "Deadline in seconds for starting a job if it misses its scheduled time"
+  type        = number
+  default     = 900
+}
+
+variable "create_bootstrap_job" {
+  description = "Whether to create a one-shot Job that populates ECR credentials immediately on apply, instead of waiting for the first CronJob run"
+  type        = bool
+  default     = true
+}
+
+variable "bootstrap_job_wait_for_completion" {
+  description = "Whether Terraform should wait for the bootstrap Job to complete during apply"
+  type        = bool
+  default     = true
+}
+
+variable "bootstrap_job_ttl_seconds" {
+  description = "TTL in seconds after which the finished bootstrap Job is automatically cleaned up"
+  type        = number
+  default     = 900
+}
+
 variable "tags" {
   description = "Additional tags to apply to AWS resources"
   type        = map(string)
