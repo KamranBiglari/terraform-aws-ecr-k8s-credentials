@@ -7,6 +7,15 @@ RUN apk add --no-cache \
     curl \
     jq
 
+# Verify the required commands are available after installation
+RUN for cmd in aws kubectl base64 bash curl jq; do \
+        if ! command -v "$cmd" >/dev/null 2>&1; then \
+            echo "ERROR: required command '$cmd' is not available" >&2; \
+            exit 1; \
+        fi; \
+        echo "Found required command: $cmd"; \
+    done
+
 # Set working directory
 WORKDIR /app
 

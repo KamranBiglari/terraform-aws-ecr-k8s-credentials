@@ -179,6 +179,19 @@ resource "kubernetes_cron_job_v1" "ecr_credential_refresh" {
                 #!/bin/bash
                 set -e
 
+                echo "Checking required commands are available..."
+                MISSING_COMMANDS=""
+                for cmd in aws kubectl base64; do
+                  if ! command -v "$cmd" >/dev/null 2>&1; then
+                    MISSING_COMMANDS="$MISSING_COMMANDS $cmd"
+                  fi
+                done
+
+                if [ -n "$MISSING_COMMANDS" ]; then
+                  echo "ERROR: The following required commands are not available:$MISSING_COMMANDS" >&2
+                  exit 1
+                fi
+
                 echo "Fetching ECR authorization token..."
                 TOKEN=$(aws ecr get-login-password --region $AWS_REGION)
 
