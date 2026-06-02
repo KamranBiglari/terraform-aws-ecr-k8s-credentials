@@ -133,6 +133,24 @@ variable "cronjob_concurrency_policy" {
   }
 }
 
+variable "cronjob_node_selector" {
+  description = "Node selector for the cronjob to control which nodes it can run on (e.g. {\"kubernetes.io/os\": \"linux\"})"
+  type        = map(string)
+  default     = {}
+}
+
+variable "cronjob_tolerations" {
+  description = "Node tolerations for the cronjob/bootstrap pods, allowing them to schedule onto tainted nodes (e.g. [{ key = \"dedicated\", operator = \"Equal\", value = \"ecr\", effect = \"NoSchedule\" }])"
+  type = list(object({
+    key                = optional(string)
+    operator           = optional(string, "Equal")
+    value              = optional(string)
+    effect             = optional(string)
+    toleration_seconds = optional(string)
+  }))
+  default = []
+}
+
 variable "cronjob_starting_deadline_seconds" {
   description = "Deadline in seconds for starting a job if it misses its scheduled time"
   type        = number

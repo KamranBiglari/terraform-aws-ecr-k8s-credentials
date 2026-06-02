@@ -171,6 +171,18 @@ resource "kubernetes_cron_job_v1" "ecr_credential_refresh" {
             service_account_name = kubernetes_service_account_v1.ecr_updater[0].metadata[0].name
             restart_policy       = "OnFailure"
 
+            node_selector = var.cronjob_node_selector
+            dynamic "toleration" {
+              for_each = var.cronjob_tolerations
+              content {
+                key                = toleration.value.key
+                operator           = toleration.value.operator
+                value              = toleration.value.value
+                effect             = toleration.value.effect
+                toleration_seconds = toleration.value.toleration_seconds
+              }
+            }
+
             security_context {
               run_as_non_root = true
               run_as_user     = 1000
@@ -290,6 +302,18 @@ resource "kubernetes_job_v1" "ecr_credential_bootstrap" {
       spec {
         service_account_name = kubernetes_service_account_v1.ecr_updater[0].metadata[0].name
         restart_policy       = "OnFailure"
+
+        node_selector = var.cronjob_node_selector
+        dynamic "toleration" {
+          for_each = var.cronjob_tolerations
+          content {
+            key                = toleration.value.key
+            operator           = toleration.value.operator
+            value              = toleration.value.value
+            effect             = toleration.value.effect
+            toleration_seconds = toleration.value.toleration_seconds
+          }
+        }
 
         security_context {
           run_as_non_root = true
