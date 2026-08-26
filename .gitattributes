@@ -1,0 +1,6 @@
+# The refresh script is embedded verbatim in locals.tf and executed by /bin/bash
+# inside the container, so these files must never be checked out with CRLF.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.gz binary

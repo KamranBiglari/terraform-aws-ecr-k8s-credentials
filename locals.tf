@@ -11,7 +11,9 @@ locals {
 
   # The credential-refresh script, shared between the scheduled CronJob and the
   # one-shot bootstrap Job so both always run identical logic.
-  refresh_script = <<-EOT
+  # Raw heredoc; CRs are stripped below so a CRLF checkout of this file (common
+  # on Windows with core.autocrlf=true) cannot leak "\r" into the container shell.
+  refresh_script_raw = <<-EOT
     #!/bin/bash
     set -e
 
@@ -68,4 +70,6 @@ locals {
 
     echo "ECR credentials refresh completed successfully!"
   EOT
+
+  refresh_script = replace(local.refresh_script_raw, "\r", "")
 }
