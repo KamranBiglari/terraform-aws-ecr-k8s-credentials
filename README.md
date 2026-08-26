@@ -55,7 +55,7 @@ module "ecr_credentials" {
 
   # CronJob Configuration
   cronjob_schedule              = "0 */6 * * *"  # Every 6 hours
-  cronjob_image                 = "kamranbiglari/ecr-k8s-updater:v0.2.0"
+  cronjob_image                 = "kamranbiglari/ecr-k8s-updater:v0.2.1"
   cronjob_image_pull_policy     = "IfNotPresent"
   cronjob_concurrency_policy    = "Forbid"
   successful_jobs_history_limit = 3
@@ -159,7 +159,7 @@ The credential-refresh pods run hardened: non-root (UID 1000), read-only root fi
 | iam_user_path | Path for IAM user | `string` | `"/system/"` | no |
 | kubernetes_namespace | Kubernetes namespace for ECR credential updater | `string` | `"ecr-updater"` | no |
 | cronjob_schedule | Cron schedule for ECR credential refresh | `string` | `"0 */6 * * *"` | no |
-| cronjob_image | Docker image for the credential refresh cronjob | `string` | `"kamranbiglari/ecr-k8s-updater:v0.2.0"` | no |
+| cronjob_image | Docker image for the credential refresh cronjob | `string` | `"kamranbiglari/ecr-k8s-updater:v0.2.1"` | no |
 | cronjob_image_pull_policy | Image pull policy (`Always`, `IfNotPresent`, `Never`). Use `Always` if tracking a mutable tag like `:latest` | `string` | `"IfNotPresent"` | no |
 | cronjob_concurrency_policy | Concurrency policy for the CronJob (`Allow`, `Forbid`, `Replace`) | `string` | `"Forbid"` | no |
 | cronjob_starting_deadline_seconds | Deadline in seconds for starting a missed job | `number` | `900` | no |
