@@ -166,7 +166,7 @@ variable "create_bootstrap_job" {
 variable "bootstrap_job_wait_for_completion" {
   description = "Whether Terraform should wait for the bootstrap Job to complete during apply"
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "bootstrap_job_ttl_seconds" {
